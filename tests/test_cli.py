@@ -21,6 +21,7 @@ def test_help_lists_rag_commands(capsys):
     assert "rag-status" in output
     assert "search" in output
     assert "chat" in output
+    assert "rebuild-rag" in output
 
 
 def test_verbose_flag_is_accepted_after_subcommand():

@@ -243,6 +243,12 @@ class Database:
             cursor.execute(sql, values)
             cursor.close()
 
+    def clear_rag_ingestion(self) -> None:
+        with self.connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM rag_ingestion")
+            cursor.close()
+
     def rag_status_counts(self) -> dict[str, int]:
         with self.connect() as conn:
             cursor = conn.cursor()

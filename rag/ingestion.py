@@ -84,6 +84,31 @@ def ingest_articles(
     return stats
 
 
+def rebuild_articles(
+    database: Database | None = None,
+    vector_store: VectorStore | None = None,
+    embedder: EmbeddingService | None = None,
+    chunk_size: int | None = None,
+    overlap: int | None = None,
+) -> IngestStats:
+    """Recreate the vector collection from news_articles. Does not modify original rows."""
+    logger.info("RAG rebuild started")
+    db = database or Database()
+    db.init()
+    store = vector_store or get_vector_store()
+    db.clear_rag_ingestion()
+    store.reset_collection()
+    stats = ingest_articles(
+        database=db,
+        vector_store=store,
+        embedder=embedder,
+        chunk_size=chunk_size,
+        overlap=overlap,
+    )
+    logger.info("RAG rebuild completed")
+    return stats
+
+
 def _needs_index(article: Article, record: dict | None) -> bool:
     if record is None:
         return True
@@ -113,7 +138,7 @@ def _index_article(
         source=article.website,
         title=article.title,
         url=article.url,
-        published_at=article.published_at or article.scraped_at,
+        published_at=article.published_at,
         chunk_size=chunk_size,
         overlap=overlap,
     )

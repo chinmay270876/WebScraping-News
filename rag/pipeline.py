@@ -7,7 +7,7 @@ from typing import Any
 from news_scraper.db import Database
 from news_scraper.sources import get_source
 from rag import config
-from rag.ingestion import IngestStats, ingest_articles
+from rag.ingestion import IngestStats, ingest_articles, rebuild_articles
 from rag.qa import answer_question
 from rag.retriever import retrieve
 from rag.vectorstore import get_vector_store
@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 
 def ingest() -> IngestStats:
     return ingest_articles()
+
+
+def rebuild() -> IngestStats:
+    return rebuild_articles()
 
 
 def status(database: Database | None = None, vector_store=None) -> dict[str, int]:
@@ -136,7 +140,9 @@ def format_search_results(hits: list[dict[str, Any]]) -> str:
     return "\n".join(lines).rstrip()
 
 
-def _filters(source: str | None, days: int | None) -> tuple[str | None, str | None, str | None]:
+def _filters(
+    source: str | None, days: int | None
+) -> tuple[str | None, datetime | None, datetime | None]:
     source_id = None
     if source:
         source_id = get_source(source).id
@@ -145,8 +151,7 @@ def _filters(source: str | None, days: int | None) -> tuple[str | None, str | No
     if days is not None:
         if days < 0:
             raise ValueError("--days must be zero or positive")
-        date_to = datetime.now().date().isoformat()
-        date_from = (datetime.now().date() - timedelta(days=days)).isoformat()
+        date_from = datetime.now() - timedelta(days=days)
     return source_id, date_from, date_to
 
 

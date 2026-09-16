@@ -105,6 +105,10 @@ def test_chunker_large_article_splits_without_breaking_words():
     assert packed[0]["id"] == "article_7_chunk_0"
     assert packed[0]["metadata"]["article_id"] == "7"
     assert packed[0]["metadata"]["source"] == "toi"
+    assert packed[0]["metadata"]["published_at"].startswith("2026-09-16")
+    assert packed[0]["metadata"]["published_timestamp"] == int(
+        datetime.fromisoformat("2026-09-16T10:00:00").timestamp()
+    )
 
 
 def test_incremental_ingestion_skips_and_reindexes(tmp_path, monkeypatch):
@@ -274,3 +278,112 @@ def test_empty_article_is_marked_failed(tmp_path, monkeypatch):
     counts = database.rag_status_counts()
     assert counts["failed"] == 1
     assert counts["indexed"] == 0
+
+
+def test_valid_published_at_becomes_numeric_timestamp():
+    published = datetime(2026, 9, 16, 10, 0)
+    packed = chunk_article(
+        article_id=1,
+        text="Carbon black prices held steady in Asia this week.",
+        source="chemanalyst",
+        title="Carbon black update",
+        url="https://www.chemanalyst.com/News/carbon-black-1",
+        published_at=published,
+    )
+    metadata = packed[0]["metadata"]
+    assert metadata["published_at"].startswith("2026-09-16T10:00:00")
+    assert metadata["published_timestamp"] == int(published.timestamp())
+    assert isinstance(metadata["published_timestamp"], int)
+
+
+def test_missing_published_at_omits_timestamp():
+    packed = chunk_article(
+        article_id=2,
+        text="Carbon black prices held steady in Asia this week.",
+        source="chemanalyst",
+        title="Undated carbon black note",
+        url="https://www.chemanalyst.com/News/carbon-black-2",
+        published_at=None,
+    )
+    metadata = packed[0]["metadata"]
+    assert metadata["published_at"] == ""
+    assert "published_timestamp" not in metadata
+
+
+def test_invalid_published_at_omits_timestamp():
+    packed = chunk_article(
+        article_id=3,
+        text="Carbon black prices held steady in Asia this week.",
+        source="chemanalyst",
+        title="Bad date carbon black note",
+        url="https://www.chemanalyst.com/News/carbon-black-3",
+        published_at="not-a-date",
+    )
+    metadata = packed[0]["metadata"]
+    assert metadata["published_at"] == "not-a-date"
+    assert "published_timestamp" not in metadata
+
+
+def test_ingested_chroma_metadata_contains_timestamp(tmp_path, monkeypatch):
+    database = _db(tmp_path, monkeypatch)
+    store = VectorStore(persist_path=tmp_path / "chroma")
+    stored = _store_article(database, _article())
+    ingest_articles(database=database, vector_store=store, embedder=FakeEmbedder())
+    metas = store.collection.get(ids=store.article_chunk_ids(stored.id))["metadatas"]
+    assert metas
+    assert isinstance(metas[0]["published_timestamp"], (int, float))
+    assert metas[0]["published_at"]
+
+
+def test_days_filter_uses_numeric_gte():
+    from datetime import timedelta
+
+    from rag.pipeline import _filters
+    from rag.retriever import where_filter
+
+    source_id, date_from, date_to = _filters("carbon", 7)
+    assert source_id == "chemanalyst"
+    assert date_to is None
+    cutoff = datetime.now() - timedelta(days=7)
+    assert abs(date_from.timestamp() - cutoff.timestamp()) < 5
+
+    where = where_filter(source_id, date_from, date_to)
+    assert where is not None
+    assert "$and" in where
+    clauses = where["$and"]
+    assert {"source": {"$eq": "chemanalyst"}} in clauses
+    timestamp_clause = next(item for item in clauses if "published_timestamp" in item)
+    gte = timestamp_clause["published_timestamp"]["$gte"]
+    assert isinstance(gte, (int, float))
+    assert abs(gte - int(date_from.timestamp())) < 2
+
+
+def test_date_filter_excludes_articles_without_timestamp(tmp_path, monkeypatch):
+    from datetime import timedelta
+
+    database = _db(tmp_path, monkeypatch)
+    store = VectorStore(persist_path=tmp_path / "chroma")
+    embedder = FakeEmbedder()
+    dated = _store_article(database, _article())
+    _store_article(
+        database,
+        _article(
+            title="Undated carbon black note",
+            description="An undated carbon black report covers freight rates and Asian offers.",
+            url="https://www.chemanalyst.com/News/carbon-black-2",
+            content_hash="e" * 64,
+            published_at=None,
+        ),
+    )
+    ingest_articles(database=database, vector_store=store, embedder=embedder)
+    query = clean_article(dated.description)
+    hits = retrieve(
+        query,
+        top_k=5,
+        source="chemanalyst",
+        date_from=datetime.now() - timedelta(days=7),
+        vector_store=store,
+        embedder=embedder,
+    )
+    assert hits
+    assert all(hit["article_id"] == dated.id for hit in hits)

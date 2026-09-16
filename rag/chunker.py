@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from rag import config
@@ -50,21 +50,25 @@ def chunk_article(
     overlap: int | None = None,
 ) -> list[dict[str, Any]]:
     published = _format_published(published_at)
+    timestamp = to_unix_timestamp(published_at)
     chunks = []
     for index, chunk in enumerate(chunk_text(text, chunk_size, overlap)):
+        metadata: dict[str, Any] = {
+            "article_id": str(article_id),
+            "chunk_index": index,
+            "source": source,
+            "title": title,
+            "url": url,
+            "published_at": published,
+            "published_date": published[:10] if published else "",
+        }
+        if timestamp is not None:
+            metadata["published_timestamp"] = timestamp
         chunks.append(
             {
                 "id": chunk_id(article_id, index),
                 "text": chunk,
-                "metadata": {
-                    "article_id": str(article_id),
-                    "chunk_index": index,
-                    "source": source,
-                    "title": title,
-                    "url": url,
-                    "published_at": published,
-                    "published_date": published[:10] if published else "",
-                },
+                "metadata": metadata,
             }
         )
     return chunks
@@ -74,9 +78,45 @@ def chunk_id(article_id: int, chunk_index: int) -> str:
     return f"article_{article_id}_chunk_{chunk_index}"
 
 
-def _format_published(value: datetime | str | None) -> str:
+def parse_published_at(value: datetime | date | str | None) -> datetime | None:
+    """Return a datetime only when the publication date is valid. Never invent one."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.replace(microsecond=0)
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time())
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    if "T" not in text:
+        text = text.replace(" ", "T", 1)
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def to_unix_timestamp(value: datetime | date | str | int | float | None) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    parsed = parse_published_at(value)
+    if parsed is None:
+        return None
+    try:
+        return int(parsed.timestamp())
+    except (OSError, OverflowError, ValueError):
+        return None
+
+
+def _format_published(value: datetime | date | str | None) -> str:
+    parsed = parse_published_at(value)
+    if parsed is not None:
+        return parsed.isoformat()
     if value is None:
         return ""
-    if isinstance(value, datetime):
-        return value.replace(microsecond=0).isoformat()
-    return str(value)
+    return str(value).strip()

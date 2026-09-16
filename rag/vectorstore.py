@@ -48,6 +48,23 @@ class VectorStore:
     def count(self) -> int:
         return int(self._collection.count())
 
+    def reset_collection(self) -> None:
+        try:
+            self._client.delete_collection(self.collection_name)
+        except Exception:
+            logger.debug("No existing collection %s to delete", self.collection_name)
+        try:
+            self._collection = self._client.get_or_create_collection(
+                name=self.collection_name,
+                embedding_function=None,
+                metadata={"hnsw:space": "cosine"},
+            )
+        except Exception:
+            self._collection = self._client.get_or_create_collection(
+                name=self.collection_name,
+                embedding_function=None,
+            )
+
     def upsert_chunks(
         self,
         *,

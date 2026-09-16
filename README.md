@@ -171,6 +171,12 @@ python -m news_scraper ingest
 
 Only articles that are missing from the index, previously failed, or whose `content_hash` changed are embedded. Running ingest twice does not duplicate vectors.
 
+If Chroma metadata needs to be regenerated (for example after a schema change), rebuild the vector index without touching `news.db`:
+
+```bash
+python -m news_scraper rebuild-rag
+```
+
 ## Ask questions
 
 ```bash

@@ -43,6 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--dry-run", action="store_true")
 
     sub.add_parser("ingest", parents=[shared], help="Index newly scraped articles into the vector database")
+    sub.add_parser("rebuild-rag", parents=[shared], help="Rebuild the vector index from news_articles")
     sub.add_parser("rag-status", parents=[shared], help="Show RAG index coverage")
 
     ask = sub.add_parser("ask", parents=[shared], help="Answer a question from indexed articles")
@@ -78,6 +79,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "ingest":
         return _command_ingest()
+
+    if args.command == "rebuild-rag":
+        return _command_rebuild()
 
     if args.command == "rag-status":
         return _command_rag_status()
@@ -141,6 +145,27 @@ def _command_ingest() -> int:
     except Exception:
         logging.exception("RAG ingestion failed")
         print("RAG ingestion failed. See logs for details.", file=sys.stderr)
+        return 1
+
+
+def _command_rebuild() -> int:
+    try:
+        from rag.config import RAG_ENABLED
+        from rag.pipeline import rebuild
+
+        if not RAG_ENABLED:
+            logging.info("RAG rebuild skipped because RAG_ENABLED is false")
+            print("RAG rebuild is disabled (RAG_ENABLED=false).")
+            return 0
+        stats = rebuild()
+        print(
+            f"Rebuilt {stats.processed} articles ({stats.chunks} chunks). "
+            f"Failed {stats.failed}."
+        )
+        return 0 if stats.failed == 0 else 1
+    except Exception:
+        logging.exception("RAG rebuild failed")
+        print("RAG rebuild failed. See logs for details.", file=sys.stderr)
         return 1
 
 
